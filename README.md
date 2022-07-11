@@ -11,13 +11,13 @@ Import one by one keystores to the web3signer by providing the following args:
 **Compile**: should be compiled with golang version 1.17
 
 ```
-go build -o slashing-prune slashing-prune.go
+go build -o import-one-by-one import-one-by-one.go
 ```
 
-The output will be an executable named `slashing-prune`
+The output will be an executable named `import-one-by-one`
 
 **Run**:
 
 ```
-./slashing-prune --source-path <source path of the slashing protection file to be prunned> --target-path <target path to create the prunned slashing protection file>
+./slashing-prune --keystores-path --slashing-protection-path --wallet-password-path --network
 ```
