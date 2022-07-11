@@ -2,7 +2,7 @@ package main
 
 // This script must be executed with four arguments:
 // --keystores-path <path>
-// --slashing-protection-path
+// --slashing-protection-path (optional)
 // --wallet-pasword-path <path>
 // --network <prater|gnosis|mainnet>
 
@@ -75,8 +75,8 @@ type PubkeyData struct {
 }
 
 func main() {
-	if len(os.Args) != 9 {
-		fmt.Println("Usage: migrate-manual --keystores-path <path> --slashing-protection-path <path> --wallet-password-path <path> --network <prater|gnosis|mainnet>")
+	if len(os.Args) != 9 && len(os.Args) != 7 {
+		fmt.Println("Usage: migrate-manual --keystores-path <path> --slashing-protection-path <path> (optional) --wallet-password-path <path> --network <prater|gnosis|mainnet>")
 		os.Exit(1)
 	}
 
@@ -96,17 +96,12 @@ func main() {
 			walletPasswordPath = os.Args[i+1]
 		}
 
-		if os.Args[i] == "network" {
+		if os.Args[i] == "--network" {
 			network = os.Args[i+1]
 		}
 	}
 	if keystoresPath == "" {
 		fmt.Println("keystores path not provided")
-		os.Exit(1)
-	}
-
-	if slashingProtectionPath == "" {
-		fmt.Println("slashing protection path not provided")
 		os.Exit(1)
 	}
 
@@ -116,7 +111,7 @@ func main() {
 	}
 
 	if network == "" {
-		fmt.Println("network api url not provided")
+		fmt.Println("network not provided")
 		os.Exit(1)
 	}
 
@@ -132,11 +127,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// load slashing protection
-	slashingProtection, err := loadSlashingProtection(slashingProtectionPath)
-	if err != nil {
-		fmt.Println("error loading slashing protection:", err)
-		os.Exit(1)
+	slashingProtection := SlashingProtection{}
+	if slashingProtectionPath != "" {
+		// load slashing protection
+		slashingProtection, err = loadSlashingProtection(slashingProtectionPath)
+		if err != nil {
+			fmt.Println("error loading slashing protection:", err)
+			os.Exit(1)
+		}
 	}
 
 	// load wallet password (it is in txt format)
@@ -146,7 +144,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Iterate over all files in format "keystore*.json" at the path --keystores-path
 	files, err := ioutil.ReadDir(keystoresPath)
 	if err != nil {
 		fmt.Println("error reading keystores directory:", err)
@@ -166,14 +163,20 @@ func main() {
 
 			requestBody := createRequestBody(keystore, walletPassword, slashingProtection)
 
-			response, err := importKeystore(requestBody, web3signerApiUrl, migrationDns)
+			responseBody, responseStatus, err := importKeystore(requestBody, web3signerApiUrl, migrationDns)
 			if err != nil {
 				fmt.Println("error importing keystore:", err)
 				os.Exit(1)
 			}
 
-			fmt.Println("imported keystore:", file.Name())
-			fmt.Println("response:", response)
+			// check response status
+			if responseStatus != 200 {
+				fmt.Println("error importing keystore:", responseBody)
+				os.Exit(1)
+			} else {
+				fmt.Println("Keystore imported successfully:", file.Name())
+				fmt.Println("response:", responseBody)
+			}
 		}
 	}
 }
@@ -191,47 +194,49 @@ func createRequestBody(keystore Keystore, walletPassword string, slashingProtect
 
 	// slashing protection (if any)
 	slashingProtectionPubkeyStr := ""
-	for _, pubkeyData := range slashingProtection.Data {
-		if pubkeyData.Pubkey == "0x"+keystore.Pubkey {
-			slashingProtectionPubkey := SlashingProtection{
-				Metadata: slashingProtection.Metadata,
-				Data: []PubkeyData{
-					{
-						Pubkey:             pubkeyData.Pubkey,
-						SignedBlocks:       pubkeyData.SignedBlocks,
-						SignedAttestations: pubkeyData.SignedAttestations,
+	if slashingProtection.Data != nil {
+		for _, pubkeyData := range slashingProtection.Data {
+			if pubkeyData.Pubkey == "0x"+keystore.Pubkey {
+				slashingProtectionPubkey := SlashingProtection{
+					Metadata: slashingProtection.Metadata,
+					Data: []PubkeyData{
+						{
+							Pubkey:             pubkeyData.Pubkey,
+							SignedBlocks:       pubkeyData.SignedBlocks,
+							SignedAttestations: pubkeyData.SignedAttestations,
+						},
 					},
-				},
-			}
+				}
 
-			slashingProtectionPubkeyJson, err := json.Marshal(slashingProtectionPubkey)
-			if err != nil {
-				fmt.Println("error marshalling slashing protection:", err)
-				os.Exit(1)
-			}
+				slashingProtectionPubkeyJson, err := json.Marshal(slashingProtectionPubkey)
+				if err != nil {
+					fmt.Println("error marshalling slashing protection:", err)
+					os.Exit(1)
+				}
 
-			slashingProtectionPubkeyStr := string(slashingProtectionPubkeyJson)
-			slashingProtectionPubkeyStr = strings.Replace(slashingProtectionPubkeyStr, "\"", "\\\"", -1)
-			slashingProtectionPubkeyStr = strings.Replace(slashingProtectionPubkeyStr, "\n", "\\n", -1)
-			break
+				slashingProtectionPubkeyStr := string(slashingProtectionPubkeyJson)
+				slashingProtectionPubkeyStr = strings.Replace(slashingProtectionPubkeyStr, "\"", "\\\"", -1)
+				slashingProtectionPubkeyStr = strings.Replace(slashingProtectionPubkeyStr, "\n", "\\n", -1)
+				break
+			}
 		}
 	}
 
 	return fmt.Sprintf(`{"keystores": ["%s"], "passwords": ["%s"], "slashing_protection": "%s"}`, keystoreStr, walletPassword, slashingProtectionPubkeyStr)
 }
 
-func importKeystore(body string, web3signerApiUrl string, migrationDns string) (string, error) {
-	// create a post request with the body and the headers
+func importKeystore(body string, web3signerApiUrl string, migrationDns string) (string, int, error) {
 	req, err := http.NewRequest("POST", web3signerApiUrl+"/eth/v1/keystores", bytes.NewBuffer([]byte(body)))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Host = migrationDns
 	var responseBody string
+	var responseStatus int
 	for i := 0; i < 5; i++ {
-		resp, err := http.Post(web3signerApiUrl+"/eth/v1/keystores", "application/json", bytes.NewBuffer([]byte(body)))
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			fmt.Println("error POSTing to web3signer API:", err)
 			time.Sleep(3 * time.Second)
@@ -245,9 +250,10 @@ func importKeystore(body string, web3signerApiUrl string, migrationDns string) (
 			continue
 		}
 		responseBody = string(body)
+		responseStatus = resp.StatusCode
 		break
 	}
-	return responseBody, nil
+	return responseBody, responseStatus, nil
 }
 
 func loadSlashingProtection(path string) (SlashingProtection, error) {
