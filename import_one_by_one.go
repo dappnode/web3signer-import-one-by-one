@@ -222,7 +222,11 @@ func createRequestBody(keystore Keystore, walletPassword string, slashingProtect
 		}
 	}
 
-	return fmt.Sprintf(`{"keystores": ["%s"], "passwords": ["%s"], "slashing_protection": "%s"}`, keystoreStr, walletPassword, slashingProtectionPubkeyStr)
+	// only retyrb the slashing protection if it is not empty
+	if slashingProtectionPubkeyStr != "" {
+		return fmt.Sprintf(`{"keystores": ["%s"], "passwords": ["%s"], "slashing_protection":"%s"}`, keystoreStr, walletPassword, slashingProtectionPubkeyStr)
+	}
+	return fmt.Sprintf(`{"keystores": ["%s"], "passwords": ["%s"]}`, keystoreStr, walletPassword)
 }
 
 func importKeystore(body string, web3signerApiUrl string, migrationDns string) (string, int, error) {
