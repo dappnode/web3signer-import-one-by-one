@@ -21,16 +21,11 @@ import (
 
 type Keystore struct {
 	Crypto struct {
+		// KDF may be any value
 		KDF struct {
-			Function string `json:"function"`
-			Params   struct {
-				DKLen int    `json:"dklen"`
-				N     int    `json:"n"`
-				R     int    `json:"r"`
-				P     int    `json:"p"`
-				Salt  string `json:"salt"`
-			} `json:"params"`
-			Message string `json:"message"`
+			Function string                 `json:"function"`
+			Params   map[string]interface{} `json:"params"`
+			Message  string                 `json:"message"`
 		} `json:"kdf"`
 		Checksum struct {
 			Function string `json:"function"`
@@ -190,7 +185,7 @@ func createRequestBody(keystore Keystore, walletPassword string, slashingProtect
 	}
 	keystoreStr := string(keystoreJson)
 	keystoreStr = strings.Replace(keystoreStr, "\"", "\\\"", -1)
-	keystoreStr = strings.Replace(keystoreStr, "\n", "\\n", -1)
+	keystoreStr = strings.Replace(keystoreStr, "\n", "", -1)
 
 	// slashing protection (if any)
 	slashingProtectionPubkeyStr := ""
