@@ -19,5 +19,5 @@ The output will be an executable named `import-one-by-one`
 **Run**:
 
 ```
-./slashing-prune --keystores-path --slashing-protection-path --wallet-password-path --network
+./import-one-by-one --keystores-path --slashing-protection-path --wallet-password-path --network
 ```
